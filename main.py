@@ -1,6 +1,8 @@
 # Модулі
 from pygame import *
 from random import randint
+import sounddevice as sd
+import numpy as np
 import sys
 init()
 
@@ -30,9 +32,27 @@ bg = transform.scale(bg, size_bg)
 # Годинник
 clock = time.Clock()
 
+# Звук
+fs = 16000
+block = 256
+mic_level = 0.0
+
+def audio_cb(indata, frames, time, status):
+    global mic_level
+    if status:
+        return
+    rms = float(np.sqrt(np.mean(indata**2)))
+    mic_level = 0.85 * mic_level + 0.15 * rms
+
+# Стрибок
+y_vel = 0.0
+gravity = 0.6
+THRESH = 0.01
+IMPULSE = -8.0
+
 # Бали
 score = 0
-record = 0
+wait = 40
 
 # Швидкість
 speed = 5
@@ -44,7 +64,6 @@ text_lose = font_t.render("You lost!", True, WHITE)
 
 font_score = font.SysFont(None, 40)
 text_score = font_score.render(f"Score: {score}", True, WHITE)
-text_record = font_score.render(f"Record: {record}", True, WHITE)
 
 # Кнопки
 font_btn = font.SysFont(None, 50)
@@ -95,8 +114,7 @@ while menu:
     hover_btn = False
 
     for btn in buttons:
-        btn_play.show(window)
-        btn_exit.show(window)
+        btn.show(window)
 
         if btn.is_hovered():
             hover_btn = True
@@ -114,8 +132,8 @@ while menu:
     display.flip()
     clock.tick(FPS)
 
-while game:
-    while not finish:
+with sd.InputStream(samplerate=fs, channels=1, blocksize=block, callback=audio_cb):
+    while game:
         events = event.get()
         keys = key.get_pressed()
         for e in events:
@@ -123,26 +141,27 @@ while game:
                 quit()
                 sys.exit()
 
+        if mic_level > THRESH:
+            y_vel = IMPULSE
+
+        y_vel += gravity
+        y += int(y_vel)
+
         window.blit(bg, (0, 0))
 
         window.blit(text_score, (10, 10))
-        window.blit(text_record, (WIDTH-text_record.get_width()-10, 10))
 
         mouse.set_cursor(SYSTEM_CURSOR_ARROW)
 
         bird_rect = flappy_bird.get_rect(topleft=(100, y))
         window.blit(flappy_bird, bird_rect)
-        if (keys[K_DOWN] or keys[K_s]) and y <= HEIGHT-55:
-            y += 5
-
-        elif (keys[K_UP] or keys[K_w]) and y >= 5:
-            y -= 5
 
         if len(pipes) < 8:
             pipes += generate_pipes(150)
 
         for pipe in pipes[:]:
-            pipe.x -= speed
+            if not finish:
+                pipe.x -= speed
             draw.rect(window, 'green', pipe)
             if pipe.x < -100:
                 pipes.remove(pipe)
@@ -151,46 +170,65 @@ while game:
                 speed += 0.02
 
             if bird_rect.colliderect(pipe):
-                window.blit(text_lose, (WIDTH//1.65-text_lose.get_width(), HEIGHT//4-text_lose.get_height()))
-                if record < score:
-                    record = score
-                    window.blit(text_record, (WIDTH-text_record.get_width()-10, 10))
                 finish = True
 
         display.flip()
         clock.tick(FPS)
-    
-    while finish:
-        events = event.get()
-        for e in events:
-            if e.type == QUIT:
-                quit()
-                sys.exit()
 
-        hover_btn = False
-
-        for btn in buttons:
-            btn.show(window)
-            if btn.is_hovered():
-                hover_btn = True
-
-        if btn_exit.is_clicked(events):
-            quit()
-            sys.exit()
-
-        if btn_restart.is_clicked(events):
-            pipes = generate_pipes(150)
-            y = HEIGHT//2-25
-            score = 0
-            speed = 5
-            text_score = font_score.render(f"Score: {score}", True, WHITE)
-            text_record = font_score.render(f"Record: {int(record)}", True, WHITE)
+        if keys[K_r] and finish:
             finish = False
+            score = 0
+            pipes = generate_pipes(150)
+            y = HEIGHT//2-100
+            y_vel = 0.0
 
-        mouse.set_cursor(SYSTEM_CURSOR_HAND if hover_btn else SYSTEM_CURSOR_ARROW)
+        if y > HEIGHT:
+            y = HEIGHT-40
+            y_vel = 0
+        if y < 0:
+            y = 0
+            if y_vel < 0:
+                y_vel = 0.0
+
+        if finish and wait > 1:
+            for pipe in pipes:
+                pipe.x += 8
+            wait -= 1
+        else:
+            finish = False
+            wait = 40
+        
+        # while finish:
+        #     events = event.get()
+        #     for e in events:
+        #         if e.type == QUIT:
+        #             quit()
+        #             sys.exit()
+
+        #     hover_btn = False
+
+        #     for btn in buttons:
+        #         btn.show(window)
+        #         if btn.is_hovered():
+        #             hover_btn = True
+
+        #     if btn_exit.is_clicked(events):
+        #         quit()
+        #         sys.exit()
+
+        #     if btn_restart.is_clicked(events):
+        #         pipes = generate_pipes(150)
+        #         y = HEIGHT//2-25
+        #         score = 0
+        #         speed = 5
+        #         text_score = font_score.render(f"Score: {score}", True, WHITE)
+        #         text_record = font_score.render(f"Record: {int(record)}", True, WHITE)
+        #         finish = False
+
+        #     mouse.set_cursor(SYSTEM_CURSOR_HAND if hover_btn else SYSTEM_CURSOR_ARROW)
+
+        #     display.flip()
+        #     clock.tick(FPS)
 
         display.flip()
         clock.tick(FPS)
-
-    display.flip()
-    clock.tick(FPS)
